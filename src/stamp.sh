@@ -78,7 +78,9 @@ if ! take_lock; then
   # Hand the event to whoever holds the lock. Bounded, so a wedged lock cannot
   # grow this file without limit.
   if [[ -n "$event_pane" ]]; then
-    if (( $(wc -l < "$pending" 2>/dev/null || echo 0) < PENDING_MAX_LINES )); then
+    queued=0
+    [[ -f "$pending" ]] && queued="$(wc -l < "$pending")"
+    if (( queued < PENDING_MAX_LINES )); then
       printf '%s\t%s\n' "$event_pane" "$now" >> "$pending"
     else
       printf 'last-used: %s already holds %s queued events; dropping this one\n' \

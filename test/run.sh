@@ -170,6 +170,9 @@ group "lib.sh: settings"
   check "a setting inside a table falls back"  "$(read_int_setting fresh_max_hours 24 2>/dev/null)" "24"
   check "a setting inside a table is reported" \
     "$(read_int_setting fresh_max_hours 24 2>&1 >/dev/null | grep -c 'inside a \[table\]')" "1"
+  printf '[thresholds]\nfresh_max_hours = 3\n' > "$settings"
+  check "a table header on the first line hides everything after it" \
+    "$(read_int_setting fresh_max_hours 24 2>/dev/null)" "24"
   rm -f "$settings"
   check "no config file means defaults"     "$(read_int_setting fresh_max_hours 24)" "24"
 )
@@ -352,6 +355,8 @@ group "stamp.sh: concurrency"
     HERDR_PANE_ID="$pane" bash "$ROOT/src/stamp.sh" &
   done
   wait
+  # A fourth, serial run folds in anything queued after the winner claimed the
+  # queue. See the test below for what the three concurrent runs alone leave.
   bash "$ROOT/src/stamp.sh"
 
   stale_rows=0
@@ -367,6 +372,28 @@ group "stamp.sh: concurrency"
   check "simultaneous runs leave no working files" "$(state_residue)" "0"
 )
 
+(
+  source "$ROOT/src/lib.sh"; new_env
+  agents w1:p1 w1:p2
+  # An event queued after the holder has already claimed the queue is not
+  # applied by that holder. It waits for the next run — the startup hook drains
+  # it at worst. This asserts that documented limitation rather than hiding it
+  # behind an extra run, so a change in the behaviour is noticed here.
+  old=$(( $(date +%s) - 30*3600 ))
+  set_stamp w1:p1 "$old"; set_stamp w1:p2 "$old"
+  printf 'w1:p2\t%s\n' "$(date +%s)" > "$HERDR_PLUGIN_STATE_DIR/pending.late"
+  HERDR_PANE_ID=w1:p1 bash "$ROOT/src/stamp.sh"
+  # Simulate the loser appending only after the claim.
+  mv "$HERDR_PLUGIN_STATE_DIR/pending.late" "$HERDR_PLUGIN_STATE_DIR/pending"
+  check "an event queued after the claim waits for the next run" \
+    "$(awk -F'\t' '$1=="w1:p2"{print $2}' "$HERDR_PLUGIN_STATE_DIR/stamps")" "$old"
+  bash "$ROOT/src/stamp.sh"
+  check "the next run applies the event that had to wait" \
+    "$(report_for w1:p2 | grep -oE '\-\-token used_(fresh|stale|old)=')" "--token used_fresh="
+  check "applying it clears the queue" \
+    "$([[ -f "$HERDR_PLUGIN_STATE_DIR/pending" ]] && echo left || echo drained)" "drained"
+)
+
 group "stamp.sh: locking"
 (
   source "$ROOT/src/lib.sh"; new_env
@@ -375,8 +402,9 @@ group "stamp.sh: locking"
   # the holder to fold in rather than dropped.
   mkdir -p "$HERDR_PLUGIN_STATE_DIR/lock"
   printf '%s' "$$" > "$HERDR_PLUGIN_STATE_DIR/lock/pid"
-  HERDR_PANE_ID=w1:p1 bash "$ROOT/src/stamp.sh"; code=$?
+  err="$(HERDR_PANE_ID=w1:p1 bash "$ROOT/src/stamp.sh" 2>&1 >/dev/null)"; code=$?
   check "an event arriving mid-render succeeds"      "$code" "0"
+  check "an event arriving mid-render says nothing"  "$err" ""
   check "an event arriving mid-render does not stamp twice"    "$(grep -c '^pane report-metadata' "$FAKE_HERDR_LOG")" "0"
   check "an event arriving mid-render is kept, not lost"  "$(cut -f1 "$HERDR_PLUGIN_STATE_DIR/pending")" "w1:p1"
 )
@@ -427,8 +455,9 @@ group "stamp.sh: locking"
   # indistinguishable from debris, so it must be assumed live for a grace period
   # rather than stolen from a running holder.
   mkdir -p "$HERDR_PLUGIN_STATE_DIR/lock"
-  HERDR_PANE_ID=w1:p1 bash "$ROOT/src/stamp.sh"
+  err="$(HERDR_PANE_ID=w1:p1 bash "$ROOT/src/stamp.sh" 2>&1 >/dev/null)"
   check "a half-created lock is left alone"       "$(grep -c '^pane report-metadata' "$FAKE_HERDR_LOG")" "0"
+  check "deferring to a half-created lock is quiet" "$err" ""
   check "a half-created lock still keeps the event" "$(cut -f1 "$HERDR_PLUGIN_STATE_DIR/pending")" "w1:p1"
 )
 
@@ -548,6 +577,39 @@ group "stamp.sh: herdr failures"
   out="$(bash "$ROOT/src/stamp.sh" 2>&1)"; code=$?
   check "a herd that cannot be stamped at all reports failure" "$code" "1"
   check "a herd that cannot be stamped at all explains itself"  "$(printf '%s' "$out" | grep -c 'every pane report failed')" "1"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  agents w1:p1
+  # Debris can be a plain file rather than a directory.
+  : > "$HERDR_PLUGIN_STATE_DIR/lock"
+  touch -t "$(date -v-10M +%Y%m%d%H%M 2>/dev/null || date -d '10 minutes ago' +%Y%m%d%H%M)" \
+    "$HERDR_PLUGIN_STATE_DIR/lock"
+  HERDR_PANE_ID=w1:p1 bash "$ROOT/src/stamp.sh"
+  check "a leftover file where the lock goes does not block events" "$(reported_panes)" "w1:p1 "
+  check "a leftover file where the lock goes is cleared" "$(state_residue)" "0"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  agents w1:p1
+  # A corrupt counter must not abort the run or emit a bad sequence.
+  printf 'garbage' > "$HERDR_PLUGIN_STATE_DIR/seq"
+  bash "$ROOT/src/stamp.sh"; code=$?
+  check "a corrupt sequence counter is survivable" "$code" "0"
+  check "a corrupt sequence counter restarts from one" \
+    "$(grep -oE '\-\-seq [0-9]+' "$FAKE_HERDR_LOG" | awk '{print $2}' | tr '\n' ' ')" "1 "
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  agents w1:p1
+  # Actions are quiet on stdout, which is what herdr renders in the pane.
+  start_recorder
+  out="$(HERDR_SOCKET_PATH="$RECORDER_SOCK" bash "$ROOT/src/filter.sh" active 2>/dev/null)"
+  stop_recorder
+  check "choosing a filter prints nothing" "$out" ""
 )
 
 group "stamp.sh: malformed agent list"
@@ -865,7 +927,7 @@ group "startup.sh"
   start_recorder
   HERDR_SOCKET_PATH="$RECORDER_SOCK" bash "$ROOT/src/startup.sh" >/dev/null 2>&1
   code=$?
-  stop_recorder
+  stop_recorder no-request
   check "starting up with no saved filter still stamps agents" "$(reported_panes)" "w1:p1 "
   check "starting up with no saved filter applies no filter" "$([[ -f "$RECORDER_OUT" ]] && echo sent || echo nothing)" "nothing"
 )
@@ -876,7 +938,7 @@ group "startup.sh"
   printf 'all\n' > "$HERDR_PLUGIN_STATE_DIR/filter"
   start_recorder
   HERDR_SOCKET_PATH="$RECORDER_SOCK" bash "$ROOT/src/startup.sh" >/dev/null 2>&1
-  stop_recorder
+  stop_recorder no-request
   check "starting up after clearing applies no filter" "$([[ -f "$RECORDER_OUT" ]] && echo sent || echo nothing)" "nothing"
 )
 
@@ -973,10 +1035,31 @@ group "install-rows.sh"
   check "an install that would break the config reports failure" "$code" "1"
   check "an install that would break the config is rolled back" \
     "$(cat "$HERDR_CONFIG_PATH")" "$original"
+  # Without these, deleting the rollback entirely would still pass: refusing to
+  # write and writing-then-restoring look identical from the config alone.
+  check "a rolled-back install says it restored a backup" \
+    "$(printf '%s' "$out" | grep -c 'restored from')" "1"
+  check "a rolled-back install left exactly one backup" \
+    "$(ls "$HERDR_CONFIG_PATH".bak.* 2>/dev/null | wc -l | tr -d ' ')" "1"
+  check "the backup it restored from holds the original" \
+    "$(cat "$HERDR_CONFIG_PATH".bak.*)" "$original"
   check "a rolled-back install leaves no partial block" \
     "$(grep -c 'herdr-last-used' "$HERDR_CONFIG_PATH")" "0"
   check "a rolled-back install does not reload herdr" \
     "$(grep -c 'server reload-config' "$FAKE_HERDR_LOG")" "0"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env; seed_config
+  # An unwritable directory means no backup can be taken, and without a backup
+  # the config must not be touched at all.
+  original="$(cat "$HERDR_CONFIG_PATH")"
+  chmod 500 "$SANDBOX"
+  out="$(bash "$ROOT/src/install-rows.sh" 2>&1)"; code=$?
+  chmod 700 "$SANDBOX"
+  check "an install that cannot back up reports failure"   "$code" "1"
+  check "an install that cannot back up explains itself"   "$(printf '%s' "$out" | grep -c 'could not create a backup')" "1"
+  check "an install that cannot back up changes nothing"    "$(cat "$HERDR_CONFIG_PATH")" "$original"
 )
 
 group "uninstall-rows.sh"
@@ -1082,7 +1165,9 @@ printf '\n%s passed, %s failed\n' "$passed" "$failed"
 # the suite would otherwise stay green while silently losing coverage. Compare
 # the SET of check names rather than a total: a count can be balanced out by a
 # check that ran twice, hiding the one that never ran.
-sed -n 's/^  check "\([^"]*\)".*/\1/p' "$ROOT/test/run.sh" | sort > "$TALLY/expected"
+# Any indentation, so a check nested in an if/for is not invisible to the gate.
+# Names must not contain a double quote — the parse would truncate at it.
+sed -n 's/^[[:space:]]*check "\([^"]*\)".*/\1/p' "$ROOT/test/run.sh" | sort > "$TALLY/expected"
 sort -u "$TALLY/names" 2>/dev/null > "$TALLY/seen" || : > "$TALLY/seen"
 
 if [[ "$(sort -u "$TALLY/expected" | wc -l | tr -d ' ')" != "$(wc -l < "$TALLY/expected" | tr -d ' ')" ]]; then

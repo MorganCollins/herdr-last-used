@@ -199,7 +199,8 @@ Two honest limitations of that queue:
 
 - An event queued *after* the holder has already claimed the queue waits for the
   next run. If no further event ever arrives, it is applied at the next server
-  start instead — the `[[startup]]` hook drains it.
+  start instead — the `[[startup]]` hook drains it. This is asserted by a test
+  rather than left implied, so a change in the behaviour shows up as a failure.
 - The queue is capped (500 entries). Past that, events are dropped with a
   message on stderr rather than growing a file without limit.
 
@@ -237,7 +238,7 @@ MIT
 bash test/run.sh
 ```
 
-177 tests, no Herdr server required. The `herdr` CLI is the plugin's only system
+194 tests, no Herdr server required. The `herdr` CLI is the plugin's only system
 boundary, so it is the only thing stubbed (`test/fake-herdr` records every
 invocation). The socket path is tested against a real unix socket rather than a
 mock, so the request framing is genuinely exercised. Everything else — the
