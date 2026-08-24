@@ -23,25 +23,12 @@ Then one keypress filters the sidebar down to just the red ones, so you can bury
 them properly and get on with your life. Tab anxiety: treated. FOMO: gently but
 firmly overruled.
 
-```
-● proximie · 1              ● proximie · 1
-  claude · working            claude · working
-                              Last used 10:58        ← green, used today
-
-● datalake · 1              ● datalake · 1
-  claude · idle               claude · idle
-                              Last used Sat 09:07    ← orange, 24h to a week
-
-● old-spike · 1             ● old-spike · 1
-  claude · idle               claude · idle
-                              Last used 12 Aug       ← red, over a week
-```
 
 <img width="275" height="54" alt="image" src="https://github.com/user-attachments/assets/d177838d-0f68-405a-b171-cfa2a50089f6" />
 
+
 The stamp is absolute and day-aware: `10:58` for today, `Sat 09:07` earlier in
-the week, `12 Aug` beyond that. Herdr exposes no timestamp on an agent — only a
-monotonic `state_change_seq` — so the plugin keeps its own clock.
+the week, `12 Aug` beyond that.
 
 ## Requirements
 
