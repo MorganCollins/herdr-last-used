@@ -164,6 +164,12 @@ group "lib.sh: settings"
   check "a zero setting is read as zero"       "$(read_int_setting fresh_max_hours 24)" "0"
   printf 'fresh_max_hours = 6 # trailing comment\n' > "$settings"
   check "a setting with a trailing comment is read" "$(read_int_setting fresh_max_hours 24)" "6"
+  printf 'rows = [\n  [ "a" ],\n]\nfresh_max_hours = 6\n' > "$settings"
+  check "a setting after a multi-line array is still read" "$(read_int_setting fresh_max_hours 24)" "6"
+  printf '[thresholds]\nfresh_max_hours = 1\n' > "$settings"
+  check "a setting inside a table falls back"  "$(read_int_setting fresh_max_hours 24 2>/dev/null)" "24"
+  check "a setting inside a table is reported" \
+    "$(read_int_setting fresh_max_hours 24 2>&1 >/dev/null | grep -c 'inside a \[table\]')" "1"
   rm -f "$settings"
   check "no config file means defaults"     "$(read_int_setting fresh_max_hours 24)" "24"
 )
@@ -391,10 +397,12 @@ group "stamp.sh: locking"
 (
   source "$ROOT/src/lib.sh"; new_env
   agents w1:p1
-  # A lock directory with no pid file at all is also unowned.
+  # An old lock with no pid file is debris from a run that died mid-creation.
   mkdir -p "$HERDR_PLUGIN_STATE_DIR/lock"
+  touch -t "$(date -v-10M +%Y%m%d%H%M 2>/dev/null || date -d '10 minutes ago' +%Y%m%d%H%M)" \
+    "$HERDR_PLUGIN_STATE_DIR/lock"
   HERDR_PANE_ID=w1:p1 bash "$ROOT/src/stamp.sh"
-  check "an unowned leftover does not block events" "$(reported_panes)" "w1:p1 "
+  check "an old unowned leftover does not block events" "$(reported_panes)" "w1:p1 "
 )
 
 (
@@ -410,6 +418,102 @@ group "stamp.sh: locking"
   check "a run that crashes reports failure" "$code" "1"
   check "a run that crashes explains itself"    "$(printf '%s' "$out" | grep -c 'aborted unexpectedly')" "1"
   check "a run that crashes does not block later events"      "$(state_residue)" "0"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  agents w1:p1
+  # A lock directory exists but its owner has not written its pid yet. That is
+  # indistinguishable from debris, so it must be assumed live for a grace period
+  # rather than stolen from a running holder.
+  mkdir -p "$HERDR_PLUGIN_STATE_DIR/lock"
+  HERDR_PANE_ID=w1:p1 bash "$ROOT/src/stamp.sh"
+  check "a half-created lock is left alone"       "$(grep -c '^pane report-metadata' "$FAKE_HERDR_LOG")" "0"
+  check "a half-created lock still keeps the event" "$(cut -f1 "$HERDR_PLUGIN_STATE_DIR/pending")" "w1:p1"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  agents w1:p1
+  # A pid outlives its process and can be reused, so "the holder is alive" is
+  # not enough on its own — a long-held lock must be broken regardless.
+  /bin/sleep 60 & live=$!
+  mkdir -p "$HERDR_PLUGIN_STATE_DIR/lock"
+  printf '%s' "$live" > "$HERDR_PLUGIN_STATE_DIR/lock/pid"
+  touch -t "$(date -v-10M +%Y%m%d%H%M 2>/dev/null || date -d '10 minutes ago' +%Y%m%d%H%M)" \
+    "$HERDR_PLUGIN_STATE_DIR/lock"
+  out="$(HERDR_PANE_ID=w1:p1 bash "$ROOT/src/stamp.sh" 2>&1)"
+  kill "$live" 2>/dev/null || true
+  check "a lock held far too long is broken"   "$(reported_panes)" "w1:p1 "
+  check "breaking a long-held lock is announced" "$(printf '%s' "$out" | grep -c 'breaking a lock held')" "1"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  agents "w1:p1:terminal=t-new"
+  # A queued event names a pane, not an occupant. Applying it to whoever now
+  # holds that pane would age a brand-new agent.
+  printf 'w1:p1\t%s\n' $(( $(date +%s) - 700000 )) > "$HERDR_PLUGIN_STATE_DIR/pending"
+  bash "$ROOT/src/stamp.sh"
+  check "a queued event does not age a replacement agent" \
+    "$(report_for w1:p1 | grep -oE '\-\-token used_(fresh|stale|old)=')" "--token used_fresh="
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  agents w1:p1
+  set_stamp w1:p1 $(( $(date +%s) - 30*3600 ))
+  printf 'w1:p1\t%s\n' "$(date +%s)" > "$HERDR_PLUGIN_STATE_DIR/pending"
+  bash "$ROOT/src/stamp.sh"
+  check "a queued event still refreshes a stale agent" \
+    "$(report_for w1:p1 | grep -oE '\-\-token used_(fresh|stale|old)=')" "--token used_fresh="
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  agents w1:p1
+  # Events taken off the queue are only ours once committed; a failed run must
+  # put them back or that activity is lost with no record.
+  printf 'w1:p2\t%s\n' "$(date +%s)" > "$HERDR_PLUGIN_STATE_DIR/pending"
+  export FAKE_HERDR_FAIL="pane report-metadata"
+  bash "$ROOT/src/stamp.sh" >/dev/null 2>&1
+  check "a failed run returns queued events to the queue" \
+    "$(cut -f1 "$HERDR_PLUGIN_STATE_DIR/pending" 2>/dev/null)" "w1:p2"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  agents w1:p1 w1:p2 w1:p3
+  # A herdr subcommand that consumed stdin used to eat the pane list, ending the
+  # loop after one agent and committing a state file missing all the others.
+  cat > "$SANDBOX/drain" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$1 $2" == "agent list" ]]; then cat "$FAKE_HERDR_AGENTS"; else cat >/dev/null; fi
+printf '%s\n' "$*" >> "$FAKE_HERDR_LOG"
+exit 0
+STUB
+  chmod +x "$SANDBOX/drain"
+  HERDR_BIN_PATH="$SANDBOX/drain" bash "$ROOT/src/stamp.sh"
+  check "a herdr call cannot swallow the agent list" "$(reported_panes)" "w1:p1 w1:p2 w1:p3 "
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  agents w1:p1 w1:p2 w1:p3
+  # Defence in depth: if the loop is cut short for any other reason, the run
+  # must not overwrite the remembered times with a partial set.
+  ln -sf "$ROOT/src/lib.sh" "$SANDBOX/lib.sh"
+  python3 - "$SANDBOX" "$ROOT" <<'GEN'
+import pathlib, sys
+sandbox, root = sys.argv[1], sys.argv[2]
+src = pathlib.Path(root, "src", "stamp.sh").read_text()
+src = src.replace('done <<< "$live"', 'done <<< "$(printf %s "$live" | head -1)"')
+pathlib.Path(sandbox, "trunc.sh").write_text(src)
+GEN
+  out="$(bash "$SANDBOX/trunc.sh" 2>&1)"; code=$?
+  check "a short-changed run reports failure"      "$code" "1"
+  check "a short-changed run explains itself"      "$(printf '%s' "$out" | grep -c 'refusing to commit a partial')" "1"
+  check "a short-changed run keeps the old times"  "$([[ -f "$HERDR_PLUGIN_STATE_DIR/stamps" ]] && echo overwritten || echo intact)" "intact"
 )
 
 group "stamp.sh: herdr failures"
@@ -936,6 +1040,21 @@ group "uninstall-rows.sh"
   sed 's/#a6e3a1/#00ff00/' "$HERDR_CONFIG_PATH" > "$HERDR_CONFIG_PATH.x" && mv "$HERDR_CONFIG_PATH.x" "$HERDR_CONFIG_PATH"
   err="$(bash "$ROOT/src/uninstall-rows.sh" 2>&1 >/dev/null)"
   check "removing a customised block warns" "$(printf '%s' "$err" | grep -c 'differs from the shipped default')" "1"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env; seed_config
+  bash "$ROOT/src/install-rows.sh" > /dev/null
+  # A config that somehow holds the block twice is not a customised block.
+  python3 - "$HERDR_CONFIG_PATH" <<'DUP'
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1]); t = p.read_text()
+block = re.search(r'(# >>> herdr-last-used.*?# <<< herdr-last-used\n)', t, re.S).group(1)
+p.write_text(t + "\n" + block)
+DUP
+  err="$(bash "$ROOT/src/uninstall-rows.sh" 2>&1 >/dev/null)"
+  check "a duplicated block is not called customised" \
+    "$(printf '%s' "$err" | grep -c 'differs from the shipped default')" "0"
 )
 
 group "manifest and asset consistency"

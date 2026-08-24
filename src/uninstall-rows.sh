@@ -25,7 +25,7 @@ grep -qxF "$MARKER_END" "$config" \
   || die "found $MARKER_BEGIN in $config but no exact closing $MARKER_END; remove the block by hand"
 
 # The colours the README tells you to customise live inside this block.
-if ! sed -n "/^${MARKER_BEGIN}\$/,/^${MARKER_END}\$/p" "$config" \
+if ! sed -n "/^${MARKER_BEGIN}\$/,/^${MARKER_END}\$/{p;/^${MARKER_END}\$/q;}" "$config" \
      | sed '1d;$d' | diff -q - "$(asset rows.snippet.toml)" >/dev/null 2>&1; then
   echo "note: the managed block differs from the shipped default (customised colours?);" >&2
   echo "      it is being removed — recover from the backup below if that was a mistake." >&2

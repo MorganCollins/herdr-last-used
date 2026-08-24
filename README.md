@@ -185,9 +185,28 @@ than it is. The `[[startup]]` hook re-renders on every server start, and the
 herdr plugin action invoke morgancollins.last-used.refresh
 ```
 
-Stamps are keyed by pane ID and pruned to live panes on every run, so closed
-panes drop out. The state file outlives a server restart, which means real ages
-survive it even though Herdr does not restore token metadata itself.
+Stamps are keyed by pane ID *and* the pane's terminal ID, and pruned to live
+panes on every run, so closed panes drop out. The state file outlives a server
+restart, which means real ages survive it even though Herdr does not restore
+token metadata itself.
+
+Only one run renders at a time. Herdr spawns a process per event and
+`pane.agent_detected` fires alongside `pane.agent_status_changed`, so overlapping
+runs are normal rather than exotic. A run that cannot take the lock appends its
+event to a queue for the holder to fold in, so concurrent events are not lost.
+
+Two honest limitations of that queue:
+
+- An event queued *after* the holder has already claimed the queue waits for the
+  next run. If no further event ever arrives, it is applied at the next server
+  start instead — the `[[startup]]` hook drains it.
+- The queue is capped (500 entries). Past that, events are dropped with a
+  message on stderr rather than growing a file without limit.
+
+A lock is broken if its owning process is gone, or if it has been held far
+longer than a run can legitimately take — a PID outlives its process and can be
+reused, and without that backstop a recycled PID would wedge the plugin
+permanently.
 
 ## Caveats
 
@@ -218,7 +237,7 @@ MIT
 bash test/run.sh
 ```
 
-162 tests, no Herdr server required. The `herdr` CLI is the plugin's only system
+177 tests, no Herdr server required. The `herdr` CLI is the plugin's only system
 boundary, so it is the only thing stubbed (`test/fake-herdr` records every
 invocation). The socket path is tested against a real unix socket rather than a
 mock, so the request framing is genuinely exercised. Everything else — the

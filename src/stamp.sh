@@ -26,28 +26,46 @@ pending="$state/pending"
 now="$(date +%s)"
 event_pane="${HERDR_PANE_ID:-}"
 
+# Only ever release a lock we still own. Without this check, a holder whose
+# lock was stolen goes on to delete the stealer's lock, admitting a third run.
 release_lock() {
+  [[ -d "$lock" ]] || return 0
+  [[ "$(cat "$lock/pid" 2>/dev/null || true)" == "$$" ]] || return 0
   rm -f "$lock/pid" 2>/dev/null || true
   rmdir "$lock" 2>/dev/null || true
 }
 
-# Breaking a stale lock must be atomic, or two runs both "break" it and both
-# proceed. Only the process whose rename succeeds owns the removal.
+# Breaking a lock must be atomic, or two runs both "break" it and both proceed.
+# Only the process whose rename succeeds owns the removal.
 take_lock() {
-  local attempt=0 holder steal
-  while (( attempt < 3 )); do
+  local attempt=0 holder age mtime steal
+  while (( attempt < 5 )); do
     attempt=$(( attempt + 1 ))
     if mkdir "$lock" 2>/dev/null; then
       printf '%s' "$$" > "$lock/pid"
       return 0
     fi
+
+    mtime="$(file_mtime "$lock")"
+    case "$mtime" in ''|*[!0-9]*) mtime="$now" ;; esac
+    age=$(( now - mtime ))
+    (( age < 0 )) && age=0
     holder="$(cat "$lock/pid" 2>/dev/null || true)"
-    if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then
-      return 1
+
+    if [[ -z "$holder" ]]; then
+      # A holder that has not written its pid yet looks identical to debris.
+      # Assume it is live until the lock is old enough that it cannot be.
+      (( age < LOCK_GRACE_SECONDS )) && return 1
+    elif kill -0 "$holder" 2>/dev/null; then
+      # Alive — but a pid outlives its process and can be reused, which would
+      # wedge every future event. A real run finishes in well under a second.
+      (( age < LOCK_MAX_HOLD_SECONDS )) && return 1
+      printf 'last-used: breaking a lock held for %ss by pid %s\n' "$age" "$holder" >&2
     fi
-    # No pid, or the holder is gone (a killed run never runs its trap). Steal by
-    # rename so exactly one contender wins, then loop to retry mkdir. This also
-    # covers the lock vanishing between the failed mkdir and here.
+
+    # Steal by rename so exactly one contender wins, then retry mkdir. This also
+    # covers the lock vanishing between the failed mkdir and here, and a $lock
+    # that is somehow a plain file.
     steal="$lock.stale.$$"
     if mv "$lock" "$steal" 2>/dev/null; then
       rm -rf "$steal" 2>/dev/null || true
@@ -57,7 +75,16 @@ take_lock() {
 }
 
 if ! take_lock; then
-  [[ -n "$event_pane" ]] && printf '%s\t%s\n' "$event_pane" "$now" >> "$pending"
+  # Hand the event to whoever holds the lock. Bounded, so a wedged lock cannot
+  # grow this file without limit.
+  if [[ -n "$event_pane" ]]; then
+    if (( $(wc -l < "$pending" 2>/dev/null || echo 0) < PENDING_MAX_LINES )); then
+      printf '%s\t%s\n' "$event_pane" "$now" >> "$pending"
+    else
+      printf 'last-used: %s already holds %s queued events; dropping this one\n' \
+        "$pending" "$PENDING_MAX_LINES" >&2
+    fi
+  fi
   exit 0
 fi
 
@@ -69,7 +96,13 @@ completed=0
 cleanup() {
   cleanup_status=$?
   [[ -n "${next:-}" ]] && rm -f "$next" 2>/dev/null
-  [[ -n "${claimed:-}" ]] && rm -f "$claimed" 2>/dev/null
+  # Events claimed from the queue are only ours once we have committed them.
+  # Deleting them on a failure path would silently discard the only record of
+  # those panes' activity.
+  if [[ -n "${claimed:-}" && -f "${claimed:-}" ]]; then
+    (( completed == 1 )) || cat "$claimed" >> "$pending" 2>/dev/null
+    rm -f "$claimed" 2>/dev/null
+  fi
   release_lock
   if (( cleanup_status == 0 && completed == 0 )); then
     printf 'last-used: stamping aborted unexpectedly\n' >&2
@@ -145,14 +178,16 @@ while IFS="$(printf '\t')" read -r pane terminal; do
       '$1 == p && $2 ~ /^[0-9]+$/ { if ($2 > v) v = $2 } END { if (v != "") print v }' "$claimed")"
   fi
 
-  if [[ "$pane" == "$event_pane" ]]; then
+  if [[ "$pane" == "$event_pane" || -z "$stored" ]]; then
     epoch="$now"
-  elif [[ -n "$pending_epoch" ]]; then
-    epoch="$pending_epoch"
-  elif [[ -n "$stored" ]]; then
-    epoch="$stored"
   else
-    epoch="$now"
+    epoch="$stored"
+  fi
+  # A queued event can only make a pane more recent, never less. Preferring the
+  # queued value outright would let an old event resurrect the age of a pane
+  # that a different agent has since taken over.
+  if [[ -n "$pending_epoch" ]] && (( pending_epoch > epoch )); then
+    epoch="$pending_epoch"
   fi
   printf '%s\t%s\t%s\n' "$pane" "$epoch" "$terminal" >> "$next"
 
@@ -174,9 +209,15 @@ while IFS="$(printf '\t')" read -r pane terminal; do
   fi
 done <<< "$live"
 
+# A CLI that consumed stdin would have ended the loop early; committing a
+# truncated file would destroy every remaining pane's recorded history.
+expected_panes="$(printf '%s\n' "$live" | grep -c .)"
+if (( reported + failures != expected_panes )); then
+  die "processed $(( reported + failures )) of $expected_panes agents; refusing to commit a partial state file"
+fi
+
 mv "$next" "$stamps"
 next=""
-rm -f "$claimed" 2>/dev/null || true
 printf '%s' "$seq_value" > "$seq_file"
 
 if (( reported == 0 && failures > 0 )); then

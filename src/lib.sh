@@ -23,6 +23,17 @@ MARKER_END="# <<< herdr-last-used"
 DEFAULT_FRESH_HOURS=24
 DEFAULT_STALE_HOURS=168
 
+# A lock with no pid file yet belongs to a holder that has not finished creating
+# it. Treat it as live for this long before assuming it is debris.
+LOCK_GRACE_SECONDS=60
+# A pid can be recycled by an unrelated process, which would wedge the plugin
+# forever. A real run takes well under a second, so a lock held this long is
+# broken regardless of what its pid says.
+LOCK_MAX_HOLD_SECONDS=300
+# Bound the queue of events waiting for a winner, so a wedged lock cannot grow
+# a file without limit.
+PENDING_MAX_LINES=500
+
 die() {
   printf 'last-used: %s\n' "$1" >&2
   exit 1
@@ -74,6 +85,15 @@ else
   DATE_STYLE=gnu
 fi
 
+# BSD and GNU stat disagree on flags; the split matches the date one above.
+file_mtime() {
+  if [[ "$DATE_STYLE" == "bsd" ]]; then
+    stat -f %m "$1" 2>/dev/null
+  else
+    stat -c %Y "$1" 2>/dev/null
+  fi
+}
+
 fmt_epoch() {
   if [[ "$DATE_STYLE" == "bsd" ]]; then
     date -r "$1" +"$2"
@@ -119,16 +139,22 @@ read_int_setting() {
   [[ -f "$file" ]] || { printf '%s' "$fallback"; return; }
   value="$(awk -v key="$key" '
     { sub(/[[:space:]]*#.*$/, "") }
-    /^[[:space:]]*\[/ { intable = 1; next }
-    intable { next }
+    # A table header, not merely any line opening with "[" — a continuation line
+    # of a multi-line array would otherwise end the root table silently.
+    /^[[:space:]]*\[\[?[^][]+\]\]?[[:space:]]*$/ { intable = 1; next }
     $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
       candidate = $0
       sub(/^[^=]*=[[:space:]]*/, "", candidate)
       sub(/[[:space:]]*$/, "", candidate)
-      if (candidate ~ /^[0-9]+$/) { found = candidate; bad = "" }
+      if (intable) { nested = 1 }
+      else if (candidate ~ /^[0-9]+$/) { found = candidate; bad = "" }
       else { bad = candidate; found = "" }
     }
-    END { if (found != "") print found; else if (bad != "") print "!" bad }
+    END {
+      if (found != "") print found
+      else if (bad != "") print "!" bad
+      else if (nested) print "~"
+    }
   ' "$file")"
   case "$value" in
     "")
@@ -137,6 +163,11 @@ read_int_setting() {
     "!"*)
       printf 'last-used: %s in %s is not a whole number (%s); using %s\n' \
         "$key" "$file" "${value#!}" "$fallback" >&2
+      printf '%s' "$fallback"
+      ;;
+    "~")
+      printf 'last-used: %s in %s is inside a [table]; it must be at the top level. Using %s\n' \
+        "$key" "$file" "$fallback" >&2
       printf '%s' "$fallback"
       ;;
     *)
@@ -178,7 +209,7 @@ report_stamp() {
   done
   args+=(--token "$(printf '%s=%010d' "$TOKEN_SORT" "$epoch")")
   "${HERDR_BIN_PATH:?HERDR_BIN_PATH is not set}" pane report-metadata "$pane_id" \
-    --source "$(metadata_source)" --seq "$seq" "${args[@]}" >/dev/null
+    --source "$(metadata_source)" --seq "$seq" "${args[@]}" >/dev/null </dev/null
 }
 
 # mktemp rather than a bare timestamp: two operations in the same second would
