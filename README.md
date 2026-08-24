@@ -18,6 +18,9 @@ activity bucket.
                               12 Aug                <- red, over a week
 ```
 
+<img width="275" height="54" alt="image" src="https://github.com/user-attachments/assets/d177838d-0f68-405a-b171-cfa2a50089f6" />
+
+
 The stamp is absolute and day-aware: `14:32` for today, `Sat 09:07` earlier in
 the week, `12 Aug` beyond that.
 
