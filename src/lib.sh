@@ -15,6 +15,12 @@ TOKEN_STALE="used_stale"
 TOKEN_OLD="used_old"
 TOKEN_SORT="used_at"
 
+# A bare time under a state line means nothing on its own, so the value carries
+# its own label. Sidebar rows take tokens, not literal text, so this is the only
+# place a label can live. Longest rendering is "Last used Sat 09:07" (19 chars),
+# inside the 24 or so a default 26-column sidebar leaves after the indent.
+STAMP_LABEL="Last used"
+
 # Delimiters for the block install-rows.sh manages in the user's config.
 # Both scripts must agree or uninstall silently stops matching.
 MARKER_BEGIN="# >>> herdr-last-used"

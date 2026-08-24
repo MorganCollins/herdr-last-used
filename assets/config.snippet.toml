@@ -8,3 +8,9 @@ rows = [
     { token = "$used_old", fg = "#f38ba8" },
   ]
 ]
+
+[[keys.command]]
+key = "prefix+shift+f"
+type = "plugin_action"
+command = "morgancollins.last-used.cycle-filter"
+description = "agents: cycle activity filter"

@@ -208,7 +208,7 @@ while IFS="$(printf '\t')" read -r pane terminal; do
   seq_value=$(( seq_value + 1 ))
   if report_stamp "$pane" \
       "$(bucket_for_age "$age" "$FRESH_SECS" "$STALE_SECS")" \
-      "$(format_stamp "$epoch" "$now")" "$epoch" "$seq_value"; then
+      "$STAMP_LABEL $(format_stamp "$epoch" "$now")" "$epoch" "$seq_value"; then
     reported=$(( reported + 1 ))
   else
     failures=$(( failures + 1 ))

@@ -218,7 +218,7 @@ group "stamp.sh: reporting"
   set_stamp w1:p1 "$seeded"
   bash "$ROOT/src/stamp.sh"
   check "a stale agent is stamped with its band and time" "$(report_for w1:p1)" \
-    "$(expect_report w1:p1 used_stale "$(format_stamp "$seeded" "$(date +%s)")" "$seeded" 1)"
+    "$(expect_report w1:p1 used_stale "$STAMP_LABEL $(format_stamp "$seeded" "$(date +%s)")" "$seeded" 1)"
 )
 
 (
@@ -250,7 +250,7 @@ group "stamp.sh: reporting"
   set_stamp w1:p1 "$seeded"
   bash "$ROOT/src/stamp.sh"
   check "an agent untouched for three weeks reads as inactive" "$(report_for w1:p1)" \
-    "$(expect_report w1:p1 used_old "$(format_stamp "$seeded" "$(date +%s)")" "$seeded" 1)"
+    "$(expect_report w1:p1 used_old "$STAMP_LABEL $(format_stamp "$seeded" "$(date +%s)")" "$seeded" 1)"
 )
 
 (
@@ -261,7 +261,7 @@ group "stamp.sh: reporting"
   bash "$ROOT/src/stamp.sh"
   stamped="$(awk -F'\t' '/^w1:p1\t/{print $2}' "$HERDR_PLUGIN_STATE_DIR/stamps")"
   check "using a stale agent makes it active again" "$(report_for w1:p1)" \
-    "$(expect_report w1:p1 used_fresh "$(format_stamp "$stamped" "$stamped")" "$stamped" 1)"
+    "$(expect_report w1:p1 used_fresh "$STAMP_LABEL $(format_stamp "$stamped" "$stamped")" "$stamped" 1)"
 )
 
 (
@@ -296,7 +296,7 @@ group "stamp.sh: pane identity"
   agents "w1:p1:terminal=t-same"
   bash "$ROOT/src/stamp.sh"
   check "an agent that stayed put keeps its age" "$(report_for w1:p1)" \
-    "$(expect_report w1:p1 used_old "$(format_stamp "$old" "$(date +%s)")" "$old" 1)"
+    "$(expect_report w1:p1 used_old "$STAMP_LABEL $(format_stamp "$old" "$(date +%s)")" "$old" 1)"
 )
 
 group "stamp.sh: state file"
@@ -992,6 +992,68 @@ group "startup.sh"
     "$(printf '%s' "$err" | grep -c 'initial stamping failed')" "1"
 )
 
+group "cycle-filter.sh"
+(
+  source "$ROOT/src/lib.sh"; new_env
+  # Nothing chosen yet, so the first press turns the filter on.
+  start_recorder
+  HERDR_SOCKET_PATH="$RECORDER_SOCK" bash "$ROOT/src/cycle-filter.sh" >/dev/null 2>&1
+  stop_recorder
+  check "the first press filters to active" \
+    "$(jq -r '.params.label' < "$RECORDER_OUT")" "active"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  printf 'active\n' > "$HERDR_PLUGIN_STATE_DIR/filter"
+  start_recorder
+  HERDR_SOCKET_PATH="$RECORDER_SOCK" bash "$ROOT/src/cycle-filter.sh" >/dev/null 2>&1
+  stop_recorder
+  check "active advances to stale" "$(jq -r '.params.label' < "$RECORDER_OUT")" "stale"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  printf 'stale\n' > "$HERDR_PLUGIN_STATE_DIR/filter"
+  start_recorder
+  HERDR_SOCKET_PATH="$RECORDER_SOCK" bash "$ROOT/src/cycle-filter.sh" >/dev/null 2>&1
+  stop_recorder
+  check "stale advances to inactive" "$(jq -r '.params.label' < "$RECORDER_OUT")" "inactive"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  printf 'inactive\n' > "$HERDR_PLUGIN_STATE_DIR/filter"
+  start_recorder
+  HERDR_SOCKET_PATH="$RECORDER_SOCK" bash "$ROOT/src/cycle-filter.sh" >/dev/null 2>&1
+  stop_recorder
+  check "inactive wraps round to showing everything" \
+    "$(jq -r '.method' < "$RECORDER_OUT")" "agent.view.clear"
+  check "wrapping round is remembered as all" "$(cat "$HERDR_PLUGIN_STATE_DIR/filter")" "all"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  printf 'inactive\n' > "$HERDR_PLUGIN_STATE_DIR/filter"
+  start_recorder
+  HERDR_SOCKET_PATH="$RECORDER_SOCK" bash "$ROOT/src/cycle-filter.sh" >/dev/null 2>&1
+  stop_recorder
+  # A keypress with no feedback is indistinguishable from one that did nothing.
+  check "cycling tells you which filter you landed on" \
+    "$(grep -c 'notification show Agents: all' "$FAKE_HERDR_LOG")" "1"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  # A failed request must not advance the remembered position, or the next press
+  # skips a step.
+  code=0
+  HERDR_SOCKET_PATH="$SANDBOX/nothing.sock" bash "$ROOT/src/cycle-filter.sh" >/dev/null 2>&1 || code=$?
+  check "a failed cycle reports failure"          "$code" "1"
+  check "a failed cycle does not advance the step" \
+    "$([[ -f "$HERDR_PLUGIN_STATE_DIR/filter" ]] && cat "$HERDR_PLUGIN_STATE_DIR/filter" || echo unset)" "unset"
+)
+
 group "startup.sh: first-run row install"
 (
   source "$ROOT/src/lib.sh"; new_env; seed_config
@@ -1001,6 +1063,12 @@ group "startup.sh: first-run row install"
   stop_recorder no-request
   check "the first startup installs the sidebar rows" \
     "$(grep -c 'herdr-last-used' "$HERDR_CONFIG_PATH")" "2"
+  check "the first startup binds a key to cycle the filter" \
+    "$(python3 -c "
+import tomllib,sys
+d=tomllib.load(open(sys.argv[1],'rb'))
+print(' '.join(f\"{c['key']}={c['command']}\" for c in d.get('keys',{}).get('command',[])))" "$HERDR_CONFIG_PATH")" \
+    "prefix+shift+f=morgancollins.last-used.cycle-filter"
   check "installing the rows on startup is announced" \
     "$(printf '%s' "$err" | grep -c 'added the sidebar rows')" "1"
 )

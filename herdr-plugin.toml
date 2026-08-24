@@ -35,6 +35,11 @@ title = "Refresh last-used stamps"
 command = ["bash", "src/stamp.sh"]
 
 [[actions]]
+id = "cycle-filter"
+title = "Agents: cycle activity filter"
+command = ["bash", "src/cycle-filter.sh"]
+
+[[actions]]
 id = "show-active"
 title = "Agents: show active only"
 command = ["bash", "src/filter.sh", "active"]

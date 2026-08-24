@@ -11,7 +11,7 @@ require_tools python3
 require_env HERDR_BIN_PATH
 
 config="$(herdr_config_file)"
-snippet="$(asset rows.snippet.toml)"
+snippet="$(asset config.snippet.toml)"
 
 [[ -f "$config" ]] || die "no Herdr config at $config"
 
@@ -61,6 +61,7 @@ fi
 printf 'installed\n' > "$state/rows"
 
 echo "added last-used rows to $config (backup: $backup)"
+echo "bound prefix+shift+F to cycle the activity filter"
 echo "note: rows is a full replacement, so your agent sidebar layout is now"
 echo "pinned to this one. Re-run install-rows after a herdr upgrade to pick up"
 echo "changes to herdr's defaults. Your colours live inside the managed block."

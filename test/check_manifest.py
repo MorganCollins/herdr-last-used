@@ -47,7 +47,7 @@ elif check == "token-contract":
         for name in ("TOKEN_FRESH", "TOKEN_STALE", "TOKEN_OLD"):
             if line.startswith(f"{name}="):
                 reported.append("$" + line.split("=", 1)[1].strip().strip('"'))
-    snippet = tomllib.load(open(os.path.join(ROOT, "assets", "rows.snippet.toml"), "rb"))
+    snippet = tomllib.load(open(os.path.join(ROOT, "assets", "config.snippet.toml"), "rb"))
     rows = snippet["ui"]["sidebar"]["agents"]["rows"]
     referenced = [
         entry["token"] if isinstance(entry, dict) else entry
