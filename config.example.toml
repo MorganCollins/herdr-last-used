@@ -1,0 +1,10 @@
+# Copy to the directory printed by:
+#   herdr plugin config-dir morgancollins.last-used
+# as config.toml. Values are whole hours.
+
+# Anything used within this many hours is "active" (green).
+fresh_max_hours = 24
+
+# Anything older than fresh_max_hours but within this many hours is
+# "stale" (orange). Beyond it, an agent is "inactive" (red).
+stale_max_hours = 168

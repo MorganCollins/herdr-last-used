@@ -1,0 +1,10 @@
+[ui.sidebar.agents]
+rows = [
+  ["state_icon", "workspace", "tab"],
+  ["agent", "state_text"],
+  [
+    { token = "$used_fresh", fg = "#a6e3a1" },
+    { token = "$used_stale", fg = "#fab387" },
+    { token = "$used_old", fg = "#f38ba8" },
+  ]
+]

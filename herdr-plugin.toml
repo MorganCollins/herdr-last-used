@@ -1,0 +1,52 @@
+id = "morgancollins.last-used"
+name = "Last Used"
+version = "0.1.0"
+min_herdr_version = "0.7.5"
+description = "Show when each live agent was last active, colour-coded by age, and filter the Agent sidebar by activity."
+platforms = ["linux", "macos"]
+
+[[startup]]
+command = ["bash", "startup.sh"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["bash", "stamp.sh"]
+
+[[events]]
+on = "pane.agent_detected"
+command = ["bash", "stamp.sh"]
+
+[[actions]]
+id = "install-rows"
+title = "Add last-used row to the Agent sidebar"
+command = ["bash", "install-rows.sh"]
+
+[[actions]]
+id = "uninstall-rows"
+title = "Remove last-used row from the Agent sidebar"
+command = ["bash", "uninstall-rows.sh"]
+
+[[actions]]
+id = "refresh"
+title = "Refresh last-used stamps"
+command = ["bash", "stamp.sh"]
+
+[[actions]]
+id = "show-active"
+title = "Agents: show active only"
+command = ["bash", "filter.sh", "active"]
+
+[[actions]]
+id = "show-stale"
+title = "Agents: show stale only"
+command = ["bash", "filter.sh", "stale"]
+
+[[actions]]
+id = "show-inactive"
+title = "Agents: show inactive only"
+command = ["bash", "filter.sh", "inactive"]
+
+[[actions]]
+id = "show-all"
+title = "Agents: clear activity filter"
+command = ["bash", "filter.sh", "all"]

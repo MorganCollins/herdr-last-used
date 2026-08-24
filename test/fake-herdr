@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Stands in for the herdr CLI, the plugin's only system boundary.
+# Logs every invocation verbatim so tests can assert on observable calls.
+set -u
+log="${FAKE_HERDR_LOG:?FAKE_HERDR_LOG not set}"
+
+case "${1:-}${2:+ $2}" in
+  "agent list")
+    printf '%s\n' "agent list" >> "$log"
+    cat "${FAKE_HERDR_AGENTS:-/dev/null}"
+    ;;
+  "server reload-config")
+    printf '%s\n' "server reload-config" >> "$log"
+    ;;
+  *)
+    printf '%s\n' "$*" >> "$log"
+    ;;
+esac
+exit 0
