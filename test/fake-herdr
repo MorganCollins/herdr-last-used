@@ -1,19 +1,43 @@
 #!/usr/bin/env bash
 # Stands in for the herdr CLI, the plugin's only system boundary.
 # Logs every invocation verbatim so tests can assert on observable calls.
+#
+# Failure injection: FAKE_HERDR_FAIL holds a command prefix that should fail
+# (e.g. "pane report-metadata"), and FAKE_HERDR_FAIL_AFTER lets the first N
+# matching calls succeed first. Without it no CLI failure path is reachable.
 set -u
 log="${FAKE_HERDR_LOG:?FAKE_HERDR_LOG not set}"
+invocation="$*"
+
+maybe_fail() {
+  local pattern="${FAKE_HERDR_FAIL:-}"
+  [[ -n "$pattern" ]] || return 0
+  case "$invocation" in
+    "$pattern"*) ;;
+    *) return 0 ;;
+  esac
+  local counter="${FAKE_HERDR_LOG}.failcount"
+  local seen=0
+  [[ -f "$counter" ]] && seen="$(cat "$counter")"
+  seen=$(( seen + 1 ))
+  printf '%s' "$seen" > "$counter"
+  (( seen > ${FAKE_HERDR_FAIL_AFTER:-0} )) && return 1
+  return 0
+}
 
 case "${1:-}${2:+ $2}" in
   "agent list")
     printf '%s\n' "agent list" >> "$log"
+    maybe_fail || { echo "fake-herdr: agent list failed" >&2; exit 1; }
     cat "${FAKE_HERDR_AGENTS:-/dev/null}"
     ;;
   "server reload-config")
     printf '%s\n' "server reload-config" >> "$log"
+    maybe_fail || { echo "fake-herdr: reload failed" >&2; exit 1; }
     ;;
   *)
-    printf '%s\n' "$*" >> "$log"
+    printf '%s\n' "$invocation" >> "$log"
+    maybe_fail || { echo "fake-herdr: $1 $2 failed" >&2; exit 1; }
     ;;
 esac
 exit 0

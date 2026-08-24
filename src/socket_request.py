@@ -3,12 +3,14 @@
 
 agent.view.set / agent.view.clear have no CLI wrapper in Herdr 0.8.2, so the
 filter actions talk to the socket directly. The protocol is newline-delimited
-JSON with no handshake: write one request line, read one response line.
+JSON with no handshake: write one request line, read one line back.
 """
 import json
 import os
 import socket
 import sys
+
+TIMEOUT_SECONDS = 10
 
 
 def main() -> int:
@@ -16,19 +18,16 @@ def main() -> int:
     if not path:
         print("HERDR_SOCKET_PATH is not set", file=sys.stderr)
         return 1
-
-    payload = sys.stdin.read() if len(sys.argv) < 2 else sys.argv[1]
-    try:
-        request = json.loads(payload)
-    except json.JSONDecodeError as error:
-        print(f"invalid request json: {error}", file=sys.stderr)
+    if len(sys.argv) < 2:
+        print("usage: socket_request.py '<json request>'", file=sys.stderr)
         return 1
 
+    request = sys.argv[1].strip()
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(10)
+            client.settimeout(TIMEOUT_SECONDS)
             client.connect(path)
-            client.sendall((json.dumps(request) + "\n").encode())
+            client.sendall(request.encode() + b"\n")
             buffer = b""
             while b"\n" not in buffer:
                 chunk = client.recv(65536)
@@ -40,8 +39,27 @@ def main() -> int:
         return 1
 
     line = buffer.split(b"\n", 1)[0].decode(errors="replace")
+    if not line:
+        print("herdr closed the connection without responding", file=sys.stderr)
+        return 1
+
     print(line)
-    return 0 if '"error"' not in line else 1
+
+    # Decide on the parsed error field, not on whether the text "error" appears
+    # somewhere in the payload — a workspace or label may legitimately be named
+    # that, and this is the only failure signal the shell layer gets.
+    try:
+        response = json.loads(line)
+    except json.JSONDecodeError:
+        print("herdr sent a response that is not JSON", file=sys.stderr)
+        return 1
+
+    error = response.get("error") if isinstance(response, dict) else None
+    if error:
+        detail = error if isinstance(error, str) else json.dumps(error)
+        print(f"herdr returned an error: {detail}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

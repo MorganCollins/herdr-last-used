@@ -37,6 +37,24 @@ elif check == "action-ids":
 elif check == "required-keys":
     missing = [k for k in ("id", "name", "version", "min_herdr_version") if k not in manifest]
     print(",".join(missing) or "none")
+elif check == "token-contract":
+    # The token names are the whole cross-process contract: lib.sh reports them
+    # and the user's config references them. A rename on one side alone renders
+    # nothing at all, with no error anywhere, so pin them together.
+    lib = open(os.path.join(ROOT, "src", "lib.sh")).read()
+    reported = []
+    for line in lib.splitlines():
+        for name in ("TOKEN_FRESH", "TOKEN_STALE", "TOKEN_OLD"):
+            if line.startswith(f"{name}="):
+                reported.append("$" + line.split("=", 1)[1].strip().strip('"'))
+    snippet = tomllib.load(open(os.path.join(ROOT, "assets", "rows.snippet.toml"), "rb"))
+    rows = snippet["ui"]["sidebar"]["agents"]["rows"]
+    referenced = [
+        entry["token"] if isinstance(entry, dict) else entry
+        for row in rows for entry in row
+        if (entry["token"] if isinstance(entry, dict) else entry).startswith("$")
+    ]
+    print("match" if reported == referenced else f"reported={reported} referenced={referenced}")
 elif check == "rows-colours":
     import json
     rows = tomllib.load(open(sys.argv[2], "rb"))["ui"]["sidebar"]["agents"]["rows"]

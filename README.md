@@ -120,7 +120,19 @@ description = "agents: all"
 ```
 
 An agent view is transient and dies with the server, so the chosen filter is
-saved in the plugin's state directory and reapplied by the `[[startup]]` hook.
+saved in the plugin's state directory and replayed by the `[[startup]]` hook.
+
+**Herdr keeps one agent view globally.** Setting a filter atomically replaces
+whoever held it, so if you run another view-setting plugin, the last one to run
+wins — and this plugin's startup replay will take the view from it on every
+server start. When that happens you get a warning on stderr naming the source
+that was displaced, which lands in `herdr plugin log list`. `show-all` clears
+only a view this plugin owns, so it will not steal one from someone else.
+
+Filtered buckets are sorted by a hidden `$used_at` token holding a zero-padded
+epoch, not by the visible label — labels sort lexicographically, where
+`Sat 09:07` would outrank `14:32`. `active` sorts newest first; `stale` and
+`inactive` sort oldest first, so the worst offenders are at the top.
 
 ## Layout
 
@@ -129,12 +141,12 @@ herdr-plugin.toml       manifest — must stay at the repo root
 src/
   lib.sh                shared helpers: formatting, bucketing, settings, paths
   stamp.sh              the event hook; stamps and re-renders every live agent
-  startup.sh            runs stamp.sh then apply-filter.sh, in that order
+  startup.sh            stamps, then replays the saved filter, in that order
   filter.sh             installs an agent view for one activity bucket
-  apply-filter.sh       replays the saved filter after a server restart
   install-rows.sh       patches the sidebar layout into your herdr config
   uninstall-rows.sh     removes that block again
   socket_request.py     one-shot socket client for agent.view.set/clear
+  config_toml.py        TOML queries grep cannot do (see install-rows)
 assets/
   rows.snippet.toml     the sidebar rows install-rows.sh writes
   config.example.toml   threshold settings to copy into the config dir
@@ -161,10 +173,13 @@ Re-rendering the whole list means the buckets and the day-aware format correct
 themselves whenever anything in the herd changes state — no background daemon
 to supervise, which Herdr's plugin v1 has no mechanism for anyway.
 
-The trade-off: if the entire herd sits idle overnight with no events at all, a
-row can stay green a little past the 24h mark until the next event. With
-thresholds this coarse that is rarely visible, and the `refresh` action forces
-it:
+The trade-off is real and worth stating plainly: nothing re-renders until the
+herd next changes state, so on a completely idle herd the drift is unbounded,
+not small. Both the colour and the label go stale — a stamp rendered `14:32`
+still reads `14:32` tomorrow, when it should read `Sat 14:32`, and `14:32`
+unambiguously means today. A herd left alone over a weekend will look fresher
+than it is. The `[[startup]]` hook re-renders on every server start, and the
+`refresh` action forces it on demand:
 
 ```bash
 herdr plugin action invoke morgancollins.last-used.refresh
@@ -183,6 +198,15 @@ survive it even though Herdr does not restore token metadata itself.
 - `install-rows` adds `state_text` to the layout. Herdr's default rows do not
   show state text at all, so without it there is no "idle" for the stamp to sit
   under.
+- `rows` is a full replacement, not an addition, so once installed your agent
+  sidebar is pinned to this plugin's layout. If herdr changes its default rows
+  you will not see the change until you re-run `install-rows`.
+- The colours live inside the block `install-rows` manages, which is the block
+  `uninstall-rows` deletes. Uninstalling warns when the block has been edited,
+  but your palette goes with it — recover from the timestamped backup.
+- Timestamps are keyed by pane id plus the pane's terminal id, because pane ids
+  are reusable slots. A new agent landing on a closed pane's id is treated as
+  first-seen rather than inheriting the previous occupant's age.
 
 ## Licence
 
@@ -194,9 +218,15 @@ MIT
 bash test/run.sh
 ```
 
-60 tests, no Herdr server required. The `herdr` CLI is the plugin's only system
+134 tests, no Herdr server required. The `herdr` CLI is the plugin's only system
 boundary, so it is the only thing stubbed (`test/fake-herdr` records every
 invocation). The socket path is tested against a real unix socket rather than a
 mock, so the request framing is genuinely exercised. Everything else — the
 formatting, the bucketing, the state pruning, the config patching — runs for
 real and is asserted on its output.
+
+Concurrency, herdr CLI failures, malformed agent-list output, hostile config
+values, and DST boundaries all have cases. `TZ` is pinned so date assertions are
+machine-independent. The suite also asserts its own check count, because a
+subshell that aborts before its assertions would otherwise contribute nothing
+and leave the run green.

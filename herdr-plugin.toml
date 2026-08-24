@@ -1,6 +1,9 @@
 id = "morgancollins.last-used"
 name = "Last Used"
 version = "0.1.0"
+# 0.7.5 is the floor for three separate APIs this plugin needs: agent.view.set
+# and agent.view.clear, one-shot [[startup]] hooks, and per-token fg styling in
+# ui.sidebar.agents.rows. Behaviour was verified against 0.8.2.
 min_herdr_version = "0.7.5"
 description = "Show when each live agent was last active, colour-coded by age, and filter the Agent sidebar by activity."
 platforms = ["linux", "macos"]
