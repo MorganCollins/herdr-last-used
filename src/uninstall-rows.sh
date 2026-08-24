@@ -2,9 +2,8 @@
 # Removes the block install-rows.sh added, leaving any hand-edits elsewhere alone.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
 # shellcheck source=lib.sh
-source lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 config="$(herdr_config_file)"
 marker="# >>> herdr-last-used"

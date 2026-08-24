@@ -6,47 +6,47 @@ description = "Show when each live agent was last active, colour-coded by age, a
 platforms = ["linux", "macos"]
 
 [[startup]]
-command = ["bash", "startup.sh"]
+command = ["bash", "src/startup.sh"]
 
 [[events]]
 on = "pane.agent_status_changed"
-command = ["bash", "stamp.sh"]
+command = ["bash", "src/stamp.sh"]
 
 [[events]]
 on = "pane.agent_detected"
-command = ["bash", "stamp.sh"]
+command = ["bash", "src/stamp.sh"]
 
 [[actions]]
 id = "install-rows"
 title = "Add last-used row to the Agent sidebar"
-command = ["bash", "install-rows.sh"]
+command = ["bash", "src/install-rows.sh"]
 
 [[actions]]
 id = "uninstall-rows"
 title = "Remove last-used row from the Agent sidebar"
-command = ["bash", "uninstall-rows.sh"]
+command = ["bash", "src/uninstall-rows.sh"]
 
 [[actions]]
 id = "refresh"
 title = "Refresh last-used stamps"
-command = ["bash", "stamp.sh"]
+command = ["bash", "src/stamp.sh"]
 
 [[actions]]
 id = "show-active"
 title = "Agents: show active only"
-command = ["bash", "filter.sh", "active"]
+command = ["bash", "src/filter.sh", "active"]
 
 [[actions]]
 id = "show-stale"
 title = "Agents: show stale only"
-command = ["bash", "filter.sh", "stale"]
+command = ["bash", "src/filter.sh", "stale"]
 
 [[actions]]
 id = "show-inactive"
 title = "Agents: show inactive only"
-command = ["bash", "filter.sh", "inactive"]
+command = ["bash", "src/filter.sh", "inactive"]
 
 [[actions]]
 id = "show-all"
 title = "Agents: clear activity filter"
-command = ["bash", "filter.sh", "all"]
+command = ["bash", "src/filter.sh", "all"]

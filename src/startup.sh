@@ -3,6 +3,6 @@
 # A view that filters on tokens is useless until those tokens exist.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
-bash stamp.sh
-bash apply-filter.sh
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$here/stamp.sh"
+bash "$here/apply-filter.sh"

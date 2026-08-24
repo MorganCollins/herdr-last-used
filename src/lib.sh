@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Shared helpers for the last-used plugin.
 
+# Resolve our own location so scripts work from any cwd. Herdr runs plugin
+# commands from the plugin root, but the tests and manual runs do not.
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ROOT="$(cd "$PLUGIN_DIR/.." && pwd)"
+
 HERDR_BIN="${HERDR_BIN_PATH:-herdr}"
 PLUGIN_ID="${HERDR_PLUGIN_ID:-morgancollins.last-used}"
 METADATA_SOURCE="plugin:${PLUGIN_ID}"
@@ -15,6 +20,10 @@ state_dir() {
 
 plugin_config_file() {
   printf '%s/config.toml' "${HERDR_PLUGIN_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/$PLUGIN_ID}"
+}
+
+asset() {
+  printf '%s/assets/%s' "$PLUGIN_ROOT" "$1"
 }
 
 herdr_config_file() {

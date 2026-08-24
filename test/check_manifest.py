@@ -16,7 +16,8 @@ HOOK_EVENTS = {
     "pane.agent_status_changed",
 }
 
-manifest = tomllib.load(open("herdr-plugin.toml", "rb"))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+manifest = tomllib.load(open(os.path.join(ROOT, "herdr-plugin.toml"), "rb"))
 check = sys.argv[1]
 
 if check == "events":
@@ -27,7 +28,7 @@ elif check == "commands":
         item["command"][1]
         for key in ("startup", "events", "actions", "panes")
         for item in manifest.get(key, [])
-        if not os.path.exists(item["command"][1])
+        if not os.path.exists(os.path.join(ROOT, item["command"][1]))
     ]
     print(",".join(missing) or "none")
 elif check == "action-ids":

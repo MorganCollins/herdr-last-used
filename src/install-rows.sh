@@ -4,9 +4,8 @@
 # only, so the colour has to be declared per token occurrence here.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
 # shellcheck source=lib.sh
-source lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 config="$(herdr_config_file)"
 marker="# >>> herdr-last-used"
@@ -27,7 +26,7 @@ $config already defines [ui.sidebar.agents].
 Merge these three rows into your existing layout by hand, then re-run
 'herdr server reload-config':
 
-$(cat rows.snippet.toml)
+$(cat "$(asset rows.snippet.toml)")
 MSG
   exit 1
 fi
@@ -37,7 +36,7 @@ cp "$config" "$backup"
 
 {
   printf '\n%s\n' "$marker"
-  cat rows.snippet.toml
+  cat "$(asset rows.snippet.toml)"
   printf '%s\n' "# <<< herdr-last-used"
 } >> "$config"
 

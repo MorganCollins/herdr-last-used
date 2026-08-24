@@ -4,9 +4,8 @@
 # pane, "which bucket" is just an exists test on that token.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
 # shellcheck source=lib.sh
-source lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 mode="${1:-}"
 case "$mode" in
@@ -39,4 +38,4 @@ else
       }}')"
 fi
 
-python3 socket_request.py "$request"
+python3 "$PLUGIN_DIR/socket_request.py" "$request"

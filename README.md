@@ -66,7 +66,7 @@ herdr plugin link ./herdr-last-used
 Copy the example into the plugin's config directory:
 
 ```bash
-cp config.example.toml "$(herdr plugin config-dir morgancollins.last-used)/config.toml"
+cp assets/config.example.toml "$(herdr plugin config-dir morgancollins.last-used)/config.toml"
 ```
 
 | Key | Default | Meaning |
@@ -122,6 +122,33 @@ description = "agents: all"
 An agent view is transient and dies with the server, so the chosen filter is
 saved in the plugin's state directory and reapplied by the `[[startup]]` hook.
 
+## Layout
+
+```
+herdr-plugin.toml       manifest — must stay at the repo root
+src/
+  lib.sh                shared helpers: formatting, bucketing, settings, paths
+  stamp.sh              the event hook; stamps and re-renders every live agent
+  startup.sh            runs stamp.sh then apply-filter.sh, in that order
+  filter.sh             installs an agent view for one activity bucket
+  apply-filter.sh       replays the saved filter after a server restart
+  install-rows.sh       patches the sidebar layout into your herdr config
+  uninstall-rows.sh     removes that block again
+  socket_request.py     one-shot socket client for agent.view.set/clear
+assets/
+  rows.snippet.toml     the sidebar rows install-rows.sh writes
+  config.example.toml   threshold settings to copy into the config dir
+test/
+  run.sh                the suite
+  fake-herdr            stub for the herdr CLI, logs every invocation
+  socket_recorder.py    real unix socket that records one request
+  check_manifest.py     manifest assertions
+```
+
+Manifest commands are written as `src/...` because Herdr resolves relative
+plugin commands from the plugin root. The scripts locate themselves rather than
+relying on cwd, so they also run fine by hand.
+
 ## How it works
 
 `pane.agent_status_changed` and `pane.agent_detected` both run `stamp.sh`. It
@@ -164,7 +191,7 @@ MIT
 ## Tests
 
 ```bash
-bash test.sh
+bash test/run.sh
 ```
 
 60 tests, no Herdr server required. The `herdr` CLI is the plugin's only system

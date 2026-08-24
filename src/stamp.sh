@@ -5,9 +5,8 @@
 # Written for bash 3.2, which is what macOS ships.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
 # shellcheck source=lib.sh
-source lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "jq is required: brew install jq" >&2
