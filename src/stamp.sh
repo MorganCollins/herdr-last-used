@@ -106,9 +106,12 @@ cleanup() {
     rm -f "$claimed" 2>/dev/null
   fi
   release_lock
-  if (( cleanup_status == 0 && completed == 0 )); then
+  # Report an incomplete run the same way on every bash. bash 3.2 loses the
+  # status of a set -u abort inside an EXIT trap and bash 5 keeps it, so keying
+  # the diagnostic off the status made the message appear only on macOS.
+  if (( completed == 0 )); then
     printf 'last-used: stamping aborted unexpectedly\n' >&2
-    cleanup_status=1
+    (( cleanup_status == 0 )) && cleanup_status=1
   fi
   exit "$cleanup_status"
 }
