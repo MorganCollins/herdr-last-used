@@ -13,7 +13,7 @@ maybe_fail() {
   local pattern="${FAKE_HERDR_FAIL:-}"
   [[ -n "$pattern" ]] || return 0
   case "$invocation" in
-    "$pattern"*) ;;
+    "$pattern"*) printf 'matched\n' >> "${FAKE_HERDR_LOG}.failmatch" ;;
     *) return 0 ;;
   esac
   local counter="${FAKE_HERDR_LOG}.failcount"

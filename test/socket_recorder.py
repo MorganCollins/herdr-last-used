@@ -6,6 +6,7 @@ framing the plugin sends to Herdr.
 
 usage: socket_recorder.py <socket-path> <out-file> [response-json]
 """
+import json
 import os
 import socket
 import sys
@@ -45,10 +46,25 @@ except socket.timeout:
     pass
 
 if buffer:
+    request = buffer.split(b"\n", 1)[0]
     with open(out, "wb") as handle:
-        handle.write(buffer.split(b"\n", 1)[0])
+        handle.write(request)
+    # Optionally record arrival in a shared log, so tests can assert the order
+    # of socket calls relative to CLI calls.
+    order_log = os.environ.get("ORDER_LOG")
+    if order_log:
+        try:
+            payload = json.loads(request)
+            method = payload.get("method", "?")
+        except (json.JSONDecodeError, AttributeError):
+            method = "?"
+        with open(order_log, "a") as handle:
+            handle.write(f"SOCKET {method}\n")
 
-conn.sendall(response.encode() + b"\n")
-conn.close()
+if response == "CLOSE_WITHOUT_REPLY":
+    conn.close()
+else:
+    conn.sendall(response.encode() + b"\n")
+    conn.close()
 server.close()
 os.unlink(path)

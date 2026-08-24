@@ -218,7 +218,7 @@ MIT
 bash test/run.sh
 ```
 
-134 tests, no Herdr server required. The `herdr` CLI is the plugin's only system
+162 tests, no Herdr server required. The `herdr` CLI is the plugin's only system
 boundary, so it is the only thing stubbed (`test/fake-herdr` records every
 invocation). The socket path is tested against a real unix socket rather than a
 mock, so the request framing is genuinely exercised. Everything else — the
@@ -227,6 +227,7 @@ real and is asserted on its output.
 
 Concurrency, herdr CLI failures, malformed agent-list output, hostile config
 values, and DST boundaries all have cases. `TZ` is pinned so date assertions are
-machine-independent. The suite also asserts its own check count, because a
-subshell that aborts before its assertions would otherwise contribute nothing
-and leave the run green.
+machine-independent. The suite also asserts that the set of checks that ran matches the set the file
+defines, because a subshell aborting before its assertions would otherwise
+contribute nothing and leave the run green — and a count alone can be balanced
+out by a check that ran twice.

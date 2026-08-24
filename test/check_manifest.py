@@ -54,14 +54,10 @@ elif check == "token-contract":
         for row in rows for entry in row
         if (entry["token"] if isinstance(entry, dict) else entry).startswith("$")
     ]
-    print("match" if reported == referenced else f"reported={reported} referenced={referenced}")
-elif check == "rows-colours":
-    import json
-    rows = tomllib.load(open(sys.argv[2], "rb"))["ui"]["sidebar"]["agents"]["rows"]
-    print(json.dumps(rows[2], separators=(",", ":")))
-elif check == "rows-count":
-    rows = tomllib.load(open(sys.argv[2], "rb"))["ui"]["sidebar"]["agents"]["rows"]
-    print(len(rows))
+    if sorted(reported) == sorted(referenced) and len(reported) == len(referenced):
+        print("match")
+    else:
+        print(f"reported={sorted(reported)} referenced={sorted(referenced)}")
 elif check == "ui-preserved":
     ui = tomllib.load(open(sys.argv[2], "rb"))["ui"]
     print(ui["agent_panel_scope"], ui["toast"]["delivery"])

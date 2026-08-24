@@ -23,19 +23,15 @@ def main() -> int:
         return 0
 
     if check == "has-agent-rows":
-        agents = data.get("ui", {}).get("sidebar", {}).get("agents", {})
-        print("yes" if isinstance(agents, dict) and "rows" in agents else "no")
-        return 0
-
-    if check == "row-tokens":
-        # Every $token referenced by the installed layout, in order.
-        rows = data["ui"]["sidebar"]["agents"]["rows"]
-        names = [
-            entry["token"] if isinstance(entry, dict) else entry
-            for row in rows
-            for entry in row
-        ]
-        print(" ".join(n for n in names if n.startswith("$")))
+        # Walk defensively: any level may hold a non-table value in a config a
+        # human wrote, and a traceback here would be read as "no".
+        node = data
+        for key in ("ui", "sidebar", "agents"):
+            if not isinstance(node, dict):
+                node = None
+                break
+            node = node.get(key)
+        print("yes" if isinstance(node, dict) and "rows" in node else "no")
         return 0
 
     if check == "coloured-tokens":

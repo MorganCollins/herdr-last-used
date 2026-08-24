@@ -23,7 +23,12 @@ fi
 python3 "$PLUGIN_DIR/config_toml.py" parses "$config" >/dev/null \
   || die "$config is not valid TOML; fix it before installing"
 
-if [[ "$(python3 "$PLUGIN_DIR/config_toml.py" has-agent-rows "$config")" == "yes" ]]; then
+# Check the exit status too: set -e does not abort on a failing command
+# substitution inside [[ ]], so a crash would look like "no existing layout".
+if ! existing="$(python3 "$PLUGIN_DIR/config_toml.py" has-agent-rows "$config")"; then
+  die "could not inspect $config for an existing agent row layout"
+fi
+if [[ "$existing" == "yes" ]]; then
   cat >&2 <<MSG
 $config already defines ui.sidebar.agents.rows.
 Merge these rows into your existing layout by hand, then re-run

@@ -106,9 +106,12 @@ bucket_for_age() {
   fi
 }
 
-# One flat `key = <integer>` pair from the plugin's config.toml. A value that is
-# not a whole number is rejected rather than truncated, and comments are
-# stripped first so a commented-out line never matches.
+# One flat `key = <integer>` pair from the top level of the plugin's config.toml.
+# Only the root table is considered, so the same key inside some other [table]
+# is not silently honoured. A value that is not a bare whole number is rejected
+# rather than truncated, and rejection is reported rather than silently
+# defaulted — a setting that was ignored without a word is the worst outcome
+# for a config file.
 read_int_setting() {
   local key="$1" fallback="$2" file value
   require_env HERDR_PLUGIN_CONFIG_DIR
@@ -116,15 +119,30 @@ read_int_setting() {
   [[ -f "$file" ]] || { printf '%s' "$fallback"; return; }
   value="$(awk -v key="$key" '
     { sub(/[[:space:]]*#.*$/, "") }
+    /^[[:space:]]*\[/ { intable = 1; next }
+    intable { next }
     $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
       candidate = $0
       sub(/^[^=]*=[[:space:]]*/, "", candidate)
       sub(/[[:space:]]*$/, "", candidate)
-      if (candidate ~ /^[0-9]+$/) { found = candidate }
+      if (candidate ~ /^[0-9]+$/) { found = candidate; bad = "" }
+      else { bad = candidate; found = "" }
     }
-    END { if (found != "") print found }
+    END { if (found != "") print found; else if (bad != "") print "!" bad }
   ' "$file")"
-  [[ -n "$value" ]] && printf '%s' "$value" || printf '%s' "$fallback"
+  case "$value" in
+    "")
+      printf '%s' "$fallback"
+      ;;
+    "!"*)
+      printf 'last-used: %s in %s is not a whole number (%s); using %s\n' \
+        "$key" "$file" "${value#!}" "$fallback" >&2
+      printf '%s' "$fallback"
+      ;;
+    *)
+      printf '%s' "$value"
+      ;;
+  esac
 }
 
 # Sets FRESH_SECS and STALE_SECS. The whole three-bucket design rests on
@@ -134,7 +152,9 @@ load_thresholds() {
   local fresh stale
   fresh="$(read_int_setting fresh_max_hours "$DEFAULT_FRESH_HOURS")"
   stale="$(read_int_setting stale_max_hours "$DEFAULT_STALE_HOURS")"
-  if (( fresh <= 0 || stale <= fresh )); then
+  # Check the products too, not just the hours: fresh * 3600 can overflow to a
+  # negative number for a value that passes an hours-only check.
+  if (( fresh <= 0 || stale <= fresh || fresh * 3600 <= 0 || stale * 3600 <= fresh * 3600 )); then
     printf 'last-used: ignoring thresholds in %s/config.toml (need 0 < fresh_max_hours < stale_max_hours, got %s and %s); using %s and %s\n' \
       "$HERDR_PLUGIN_CONFIG_DIR" "$fresh" "$stale" "$DEFAULT_FRESH_HOURS" "$DEFAULT_STALE_HOURS" >&2
     fresh="$DEFAULT_FRESH_HOURS"
@@ -161,9 +181,13 @@ report_stamp() {
     --source "$(metadata_source)" --seq "$seq" "${args[@]}" >/dev/null
 }
 
+# mktemp rather than a bare timestamp: two operations in the same second would
+# otherwise overwrite the earlier backup, and the recovery advice we print
+# would point at a file that no longer holds the pre-change content.
 backup_config() {
   local file="$1" backup
-  backup="${file}.bak.$(date +%Y%m%d-%H%M%S)"
-  cp "$file" "$backup" || die "could not back up $file"
+  backup="$(mktemp "${file}.bak.$(date +%Y%m%d-%H%M%S).XXXXXX")" \
+    || die "could not create a backup next to $file"
+  cat "$file" > "$backup" || die "could not back up $file"
   printf '%s' "$backup"
 }

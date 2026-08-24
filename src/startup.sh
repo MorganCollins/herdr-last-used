@@ -8,7 +8,10 @@ set -euo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-bash "$PLUGIN_DIR/stamp.sh"
+# Tolerate a stamping failure: [[startup]] runs once, so aborting here would
+# leave the saved filter unapplied for the whole session.
+bash "$PLUGIN_DIR/stamp.sh" \
+  || printf 'last-used: initial stamping failed; restoring the saved filter anyway\n' >&2
 
 mode="$(cat "$(state_dir)/filter" 2>/dev/null || true)"
 [[ -n "$mode" && "$mode" != "all" ]] || exit 0
