@@ -1,8 +1,27 @@
 # herdr-last-used
 
-A [Herdr](https://herdr.dev) plugin that shows when each live agent was last
-active, colour-coded by age, and lets you filter the Agent sidebar down to one
-activity band with a single keypress.
+*Which of these agents are alive, and which are just haunting you?*
+
+Run [Herdr](https://herdr.dev) for a week and you have eleven agents open. Two
+are doing real work. One is blocked on a question you have entirely forgotten
+asking. The rest are dead — that task shipped on Tuesday — and the tab is still
+there because closing it would have been a decision, and you were busy.
+
+Congratulations: you have built a graveyard, and you are its groundskeeper.
+
+The trouble is that Herdr draws all eleven exactly the same way. A dot, a name,
+a status. Nothing separates the agent you were talking to ten minutes ago from
+the one you abandoned mid-thought last week. So you keep the lot, because *what
+if*, and the sidebar fills up with the digital equivalent of a drawer full of
+cables you will never identify.
+
+This plugin puts a time under each agent and colours it by age. **Green**, you
+used it today. **Orange**, it has been a day. **Red**, it has been a week and
+you both know how this ends.
+
+Then one keypress filters the sidebar down to just the red ones, so you can bury
+them properly and get on with your life. Tab anxiety: treated. FOMO: gently but
+firmly overruled.
 
 ```
 ● proximie · 1              ● proximie · 1
