@@ -49,7 +49,7 @@ new_env() {
 agents() { # pane_id[:terminal_id]...
   local first=1 pane terminal
   {
-    printf '{"type":"agent_list","agents":['
+    printf '{"id":"cli:agent:list","result":{"agents":['
     for spec in "$@"; do
       pane="${spec%%:terminal=*}"
       if [[ "$spec" == *:terminal=* ]]; then terminal="${spec##*:terminal=}"; else terminal="t-$pane"; fi
@@ -58,7 +58,7 @@ agents() { # pane_id[:terminal_id]...
       printf '{"pane_id":"%s","terminal_id":"%s","agent_status":"idle","workspace_id":"w1","tab_id":"w1:t1","focused":false,"revision":1}' \
         "$pane" "$terminal"
     done
-    printf ']}\n'
+    printf ']}}\n'
   } > "$FAKE_HERDR_AGENTS"
 }
 
@@ -612,10 +612,44 @@ group "stamp.sh: herdr failures"
   check "choosing a filter prints nothing" "$out" ""
 )
 
+group "stamp.sh: the real herdr contract"
+(
+  source "$ROOT/src/lib.sh"; new_env
+  # A response captured from a real `herdr agent list` on 0.8.2, not a shape
+  # invented here. The stub previously emitted agents at the top level, which
+  # herdr does not do, so the whole suite validated a contract that did not
+  # exist and the plugin failed on every real event.
+  cp "$ROOT/test/fixtures-agent-list.json" "$FAKE_HERDR_AGENTS"
+  bash "$ROOT/src/stamp.sh"; code=$?
+  check "a real herdr response is understood" "$code" "0"
+  check "every agent in a real response is stamped" \
+    "$(reported_panes)" "w653ba1baaae7c1:p1 w655370cfff36a9:p1 "
+  check "real hex workspace ids survive the round trip" \
+    "$(cut -f1 "$HERDR_PLUGIN_STATE_DIR/stamps" | sort | tr '\n' ' ')" \
+    "w653ba1baaae7c1:p1 w655370cfff36a9:p1 "
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  # Tolerated for forward compatibility, but not the shape herdr sends today.
+  printf '{"agents":[{"pane_id":"w1:p1","terminal_id":"t1"}]}\n' > "$FAKE_HERDR_AGENTS"
+  bash "$ROOT/src/stamp.sh"
+  check "an unwrapped response is also understood" "$(reported_panes)" "w1:p1 "
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env
+  # A CLI error envelope has no agents key at either level.
+  printf '{"id":"cli:agent:list","error":{"code":1,"message":"nope"}}\n' > "$FAKE_HERDR_AGENTS"
+  out="$(bash "$ROOT/src/stamp.sh" 2>&1)"; code=$?
+  check "a wrapped error envelope reports failure" "$code" "1"
+  check "a wrapped error envelope stamps nothing"  "$(grep -c '^pane report-metadata' "$FAKE_HERDR_LOG")" "0"
+)
+
 group "stamp.sh: malformed agent list"
 (
   source "$ROOT/src/lib.sh"; new_env
-  printf '{"type":"agent_list","agents":[]}\n' > "$FAKE_HERDR_AGENTS"
+  printf '{"id":"cli:agent:list","result":{"agents":[]}}\n' > "$FAKE_HERDR_AGENTS"
   export HERDR_PANE_ID=w1:p1
   bash "$ROOT/src/stamp.sh"; code=$?
   check "no agents means nothing to do"  "$code" "0"
@@ -648,7 +682,7 @@ group "stamp.sh: malformed agent list"
 
 (
   source "$ROOT/src/lib.sh"; new_env
-  printf '{"agents":[{"pane_id":null},{"pane_id":""},{"pane_id":"w1:p1","terminal_id":"t1"}]}\n' > "$FAKE_HERDR_AGENTS"
+  printf '{"id":"x","result":{"agents":[{"pane_id":null},{"pane_id":""},{"pane_id":"w1:p1","terminal_id":"t1"}]}}\n' > "$FAKE_HERDR_AGENTS"
   bash "$ROOT/src/stamp.sh"
   check "agents without an identity are skipped" "$(reported_panes)" "w1:p1 "
 )

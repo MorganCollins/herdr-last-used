@@ -123,17 +123,22 @@ if ! agents_json="$("$HERDR_BIN_PATH" agent list 2>&1)"; then
   die "herdr agent list failed: $agents_json"
 fi
 [[ -n "$agents_json" ]] || die "herdr agent list produced no output"
+# The CLI wraps its payload as {"id":..,"result":{"agents":[..]}}; the raw socket
+# does the same. A bare {"agents":..} is accepted too so a future unwrapped
+# response does not break this. Anything else — an error envelope has no agents
+# key at either level — is a failure, not an empty herd.
 if ! live="$(printf '%s' "$agents_json" | jq -r '
-      if type != "object" or (has("agents") | not) then
-        "SHAPE_ERROR" | halt_error(3)
-      elif .agents == null then
-        empty
-      elif (.agents | type) != "array" then
-        "SHAPE_ERROR" | halt_error(3)
-      else
-        .agents[] | select(.pane_id != null and .pane_id != "")
-        | [.pane_id, (.terminal_id // "")] | @tsv
-      end' 2>&1)"; then
+      (if type == "object" and (.result | type) == "object" then .result else . end) as $body
+      | if ($body | type) != "object" or ($body | has("agents") | not) then
+          "SHAPE_ERROR" | halt_error(3)
+        elif $body.agents == null then
+          empty
+        elif ($body.agents | type) != "array" then
+          "SHAPE_ERROR" | halt_error(3)
+        else
+          $body.agents[] | select(.pane_id != null and .pane_id != "")
+          | [.pane_id, (.terminal_id // "")] | @tsv
+        end' 2>&1)"; then
   die "could not parse herdr agent list output: ${live:-unexpected shape}"
 fi
 

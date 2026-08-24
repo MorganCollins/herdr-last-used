@@ -238,15 +238,18 @@ MIT
 bash test/run.sh
 ```
 
-194 tests, no Herdr server required. The `herdr` CLI is the plugin's only system
+200 tests, no Herdr server required. The `herdr` CLI is the plugin's only system
 boundary, so it is the only thing stubbed (`test/fake-herdr` records every
 invocation). The socket path is tested against a real unix socket rather than a
 mock, so the request framing is genuinely exercised. Everything else — the
 formatting, the bucketing, the state pruning, the config patching — runs for
 real and is asserted on its output.
 
-Concurrency, herdr CLI failures, malformed agent-list output, hostile config
-values, and DST boundaries all have cases. `TZ` is pinned so date assertions are
+One fixture, `test/fixtures-agent-list.json`, is a response captured from a real
+`herdr agent list` rather than a shape written by hand — the stub originally
+invented the envelope, so the whole suite validated a contract that did not
+exist. Concurrency, herdr CLI failures, malformed agent-list output, hostile
+config values, and DST boundaries all have cases. `TZ` is pinned so date assertions are
 machine-independent. The suite also asserts that the set of checks that ran matches the set the file
 defines, because a subshell aborting before its assertions would otherwise
 contribute nothing and leave the run green — and a count alone can be balanced
