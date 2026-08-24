@@ -46,5 +46,11 @@ backup="$(backup_config "$config")"
 cat "$tmp" > "$config"
 rm -f "$tmp"
 
+# Remember the choice: the startup hook installs rows on first run, and would
+# otherwise put them back every time herdr started.
+state="$(state_dir)"
+mkdir -p "$state"
+printf 'removed\n' > "$state/rows"
+
 echo "removed last-used rows from $config (backup: $backup)"
 "$HERDR_BIN_PATH" server reload-config

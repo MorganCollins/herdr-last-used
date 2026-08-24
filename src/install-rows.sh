@@ -15,7 +15,11 @@ snippet="$(asset rows.snippet.toml)"
 
 [[ -f "$config" ]] || die "no Herdr config at $config"
 
+state="$(state_dir)"
+mkdir -p "$state"
+
 if grep -qF "$MARKER_BEGIN" "$config"; then
+  printf 'installed\n' > "$state/rows"
   echo "last-used rows already installed in $config"
   exit 0
 fi
@@ -53,6 +57,8 @@ if ! python3 "$PLUGIN_DIR/config_toml.py" parses "$config" >/dev/null 2>&1; then
   cp "$backup" "$config"
   die "patching $config produced invalid TOML; restored from $backup"
 fi
+
+printf 'installed\n' > "$state/rows"
 
 echo "added last-used rows to $config (backup: $backup)"
 echo "note: rows is a full replacement, so your agent sidebar layout is now"

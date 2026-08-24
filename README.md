@@ -46,6 +46,18 @@ stale agents" is an `exists` test on `$used_stale`.
 
 ```bash
 herdr plugin install MorganCollins/herdr-last-used
+```
+
+The sidebar rows install themselves the first time the plugin's `[[startup]]`
+hook runs, so restart herdr (or wait for the next start) and they appear. Herdr
+has no post-install hook — build commands do not run for a linked plugin and get
+no socket access — so startup is the only place this can happen automatically.
+
+That decision is remembered. If you run `uninstall-rows`, startup will not put
+the rows back on the next server start. To install them immediately instead of
+waiting for a restart:
+
+```bash
 herdr plugin action invoke morgancollins.last-used.install-rows
 ```
 
@@ -238,7 +250,7 @@ MIT
 bash test/run.sh
 ```
 
-200 tests, no Herdr server required. The `herdr` CLI is the plugin's only system
+208 tests, no Herdr server required. The `herdr` CLI is the plugin's only system
 boundary, so it is the only thing stubbed (`test/fake-herdr` records every
 invocation). The socket path is tested against a real unix socket rather than a
 mock, so the request framing is genuinely exercised. Everything else — the

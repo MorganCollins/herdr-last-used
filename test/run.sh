@@ -992,6 +992,59 @@ group "startup.sh"
     "$(printf '%s' "$err" | grep -c 'initial stamping failed')" "1"
 )
 
+group "startup.sh: first-run row install"
+(
+  source "$ROOT/src/lib.sh"; new_env; seed_config
+  agents w1:p1
+  start_recorder
+  err="$(HERDR_SOCKET_PATH="$RECORDER_SOCK" bash "$ROOT/src/startup.sh" 2>&1 >/dev/null)"
+  stop_recorder no-request
+  check "the first startup installs the sidebar rows" \
+    "$(grep -c 'herdr-last-used' "$HERDR_CONFIG_PATH")" "2"
+  check "installing the rows on startup is announced" \
+    "$(printf '%s' "$err" | grep -c 'added the sidebar rows')" "1"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env; seed_config
+  agents w1:p1
+  # Removing the rows must survive a restart, or the plugin puts them back every
+  # time herdr starts and the uninstall action is meaningless.
+  bash "$ROOT/src/install-rows.sh" >/dev/null
+  bash "$ROOT/src/uninstall-rows.sh" >/dev/null
+  original="$(cat "$HERDR_CONFIG_PATH")"
+  start_recorder
+  bash "$ROOT/src/startup.sh" >/dev/null 2>&1
+  stop_recorder no-request
+  check "a later startup does not put removed rows back" "$(cat "$HERDR_CONFIG_PATH")" "$original"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env; seed_config
+  agents w1:p1
+  bash "$ROOT/src/startup.sh" >/dev/null 2>&1
+  before="$(cat "$HERDR_CONFIG_PATH")"
+  backups="$(ls "$HERDR_CONFIG_PATH".bak.* 2>/dev/null | wc -l | tr -d ' ')"
+  bash "$ROOT/src/startup.sh" >/dev/null 2>&1
+  check "a second startup changes nothing"       "$(cat "$HERDR_CONFIG_PATH")" "$before"
+  check "a second startup makes no extra backup" "$(ls "$HERDR_CONFIG_PATH".bak.* 2>/dev/null | wc -l | tr -d ' ')" "$backups"
+)
+
+(
+  source "$ROOT/src/lib.sh"; new_env; seed_config
+  agents w1:p1
+  # A config the plugin must not touch: startup must give up quietly and never
+  # retry, rather than complaining on every server start.
+  printf '\n[ui.sidebar.agents]\nrows = [["agent"]]\n' >> "$HERDR_CONFIG_PATH"
+  original="$(cat "$HERDR_CONFIG_PATH")"
+  err="$(bash "$ROOT/src/startup.sh" 2>&1 >/dev/null)"
+  check "startup leaves a hand-written layout alone"  "$(cat "$HERDR_CONFIG_PATH")" "$original"
+  check "startup says it left the config alone"       "$(printf '%s' "$err" | grep -c 'left your herdr config alone')" "1"
+  err2="$(bash "$ROOT/src/startup.sh" 2>&1 >/dev/null)"
+  check "startup does not retry a config it gave up on" \
+    "$(printf '%s' "$err2" | grep -c 'left your herdr config alone')" "0"
+)
+
 group "install-rows.sh"
 
 (
